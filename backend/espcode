@@ -1,0 +1,92 @@
+#include <WiFi.h>
+#include <WebSocketsClient.h>
+
+// Wi-Fi credentials
+const char* ssid = "yourSSID";
+const char* password = "yourPASSWORD";
+
+// WebSocket server details
+const char* webSocketServer = "your-server-ip";
+const int webSocketPort = 8080;
+const char* webSocketPath = "/ws";
+
+// Relay pin
+#define RELAY_PIN 23
+
+WebSocketsClient webSocket;
+
+// Track usage count
+int usageCount = 0; // Initialize the usage count
+
+void setup() {
+  // Initialize serial communication
+  Serial.begin(115200);
+
+  // Set relay pin as output
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW); // Ensure the lock is initially unlocked
+
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+
+  // Connect to WebSocket server
+  webSocket.begin(webSocketServer, webSocketPort, webSocketPath);
+  webSocket.onEvent(webSocketEvent);
+}
+
+void loop() {
+  // Maintain WebSocket connection
+  webSocket.loop();
+}
+
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+  switch(type) {
+    case WStype_DISCONNECTED:
+      Serial.println("WebSocket Disconnected");
+      break;
+    case WStype_CONNECTED:
+      Serial.println("WebSocket Connected");
+      break;
+    case WStype_TEXT:
+      handleIncomingMessage((char*)payload);
+      break;
+    default:
+      break;
+  }
+}
+
+void handleIncomingMessage(char* message) {
+  String msg = String(message);
+
+  if (msg == "lock_door") {
+    lockDoor();
+  } else if (msg == "unlock_door") {
+    unlockDoor();
+  } else if (msg.startsWith("increment_count")) {
+    incrementUsageCount();
+  }
+}
+
+void lockDoor() {
+  digitalWrite(RELAY_PIN, HIGH); // Activate relay to lock door
+  Serial.println("Door locked");
+}
+
+void unlockDoor() {
+  digitalWrite(RELAY_PIN, LOW); // Deactivate relay to unlock door
+  Serial.println("Door unlocked");
+}
+
+void incrementUsageCount() {
+  usageCount++;
+  Serial.println("Usage count incremented: " + String(usageCount));
+  
+  // Send updated count to Python backend via WebSocket
+  String countMessage = "{\"type\":\"update_usage_count\",\"count\":" + String(usageCount) + "}";
+  webSocket.sendTXT(countMessage);
+}
